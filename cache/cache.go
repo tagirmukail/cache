@@ -27,7 +27,7 @@ func NewCache(defaultExpiration, cleanupInterval time.Duration) *Cache {
 	}
 
 	if cleanupInterval > 0 {
-		cache.RunCleanExpiredItems()
+		go cache.runCleanExpiredItems()
 	}
 
 	return cache
@@ -68,19 +68,18 @@ func (o *Cache) Get(key string) (interface{}, bool) {
 	return item, true
 }
 
-
-func (o *Cache) Del(key string) error {
+func (o *Cache) Del(key string) {
 	o.Lock()
-	defer o.Unlock()
-
-	_, ok := o.items[key]
-	if !ok {
-		return errors.New("Key not fount")
-	}
-
 	delete(o.items, key)
+	o.Unlock()
+}
 
-	return nil
+// Exist - check exist item with specified key
+func(o *Cache) Exist(key string) bool {
+	o.RLock()
+	_, ok := o.items[key]
+	o.RUnlock()
+	return ok
 }
 
 func (o *Cache) Count() int {
@@ -92,10 +91,9 @@ func (o *Cache) Count() int {
 
 // Rename - renamed key
 func (o *Cache) Rename(oldKey, newKey string) error {
-	o.Lock()
-	defer o.Unlock()
-
+	o.RLock()
 	item, ok := o.items[oldKey]
+	o.Unlock()
 	if !ok {
 		return errors.New("Key not found")
 	}
@@ -103,17 +101,38 @@ func (o *Cache) Rename(oldKey, newKey string) error {
 	if item.Expiration > 0 && time.Now().Unix() > item.Expiration {
 		return errors.New("This item - expired")
 	}
-
+	o.Lock()
 	o.items[newKey] = item
+	o.Unlock()
 
 	return nil
 }
 
-func (o *Cache) RunCleanExpiredItems() {
-	go o.cleanExpiredItems()
+// IsCacheExpired - check cache on expired
+func (o *Cache) IsCacheExpired() bool {
+	o.Lock()
+	for _, item := range o.items {
+		if item.Expiration == 0 {
+			return false
+		}
+
+		if time.Now().Unix() < item.Expiration && item.Expiration > 0 {
+			return false
+		}
+	}
+	o.Unlock()
+
+	return true
 }
 
-func (o *Cache) cleanExpiredItems() {
+func (o *Cache) FlushAll() {
+	o.Lock()
+	o.items = map[string]Item{}
+	o.Unlock()
+	return
+}
+
+func (o *Cache) runCleanExpiredItems() {
 	var t = time.NewTimer(o.cleanupInterval)
 	defer t.Stop()
 
@@ -124,35 +143,17 @@ func (o *Cache) cleanExpiredItems() {
 			return
 		}
 
-		var keys = o.getExpiredKeys()
-		if len(keys) == 0 {
-			continue
-		}
-
-		o.clearItems(keys)
+		o.clearItems()
 	}
-}
-
-// getExpiredKeys returned all expired keys
-func (o *Cache) getExpiredKeys() []string {
-	var keys []string
-
-	o.RLock()
-	for key, item := range o.items {
-		if time.Now().Unix() > item.Expiration && item.Expiration > 0 {
-			keys = append(keys, key)
-		}
-	}
-	o.Unlock()
-
-	return keys
 }
 
 // clearItems clear all expired items from cache
-func (o *Cache) clearItems(keys []string) {
+func (o *Cache) clearItems() {
 	o.Lock()
-	for k := range o.items {
-		delete(o.items, k)
+	for key, item := range o.items {
+		if time.Now().Unix() > item.Expiration && item.Expiration > 0 {
+			delete(o.items, key)
+		}
 	}
 	o.Unlock()
 }
