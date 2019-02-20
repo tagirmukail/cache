@@ -15,7 +15,7 @@ type Item struct {
 type Cache struct {
 	sync.RWMutex
 	items             map[string]Item
-	defaultExpiration time.Duration // default cache lifetime
+	defaultExpiration time.Duration // default cache item lifetime
 	cleanupInterval   time.Duration // interval at which the cache is cleared
 }
 
