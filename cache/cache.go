@@ -65,7 +65,7 @@ func (o *Cache) Get(key string) (interface{}, bool) {
 		return nil, false
 	}
 
-	return item, true
+	return item.Value, true
 }
 
 func (o *Cache) Del(key string) {
